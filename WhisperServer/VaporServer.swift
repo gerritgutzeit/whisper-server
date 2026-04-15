@@ -40,6 +40,10 @@ final class VaporServer {
     
     /// The port the server listens on
     private let port: Int
+
+    /// The network interface host the server binds to.
+    /// Use 0.0.0.0 to accept connections from all interfaces.
+    private let hostname: String
     
     /// Model manager instance
     private let modelManager: ModelManager
@@ -58,9 +62,11 @@ final class VaporServer {
     /// Creates a new instance of the Vapor server
     /// - Parameter port: Port to listen for connections
     /// - Parameter modelManager: The manager for Whisper models
-    init(port: Int, modelManager: ModelManager) {
+    /// - Parameter hostname: Host/interface to bind the server to (default: all interfaces)
+    init(port: Int, modelManager: ModelManager, hostname: String = "0.0.0.0") {
         self.port = port
         self.modelManager = modelManager
+        self.hostname = hostname
     }
     
     // MARK: - Public Methods
@@ -74,7 +80,7 @@ final class VaporServer {
             self.app = app
 
             // Configure the server
-            app.http.server.configuration.hostname = "localhost"
+            app.http.server.configuration.hostname = hostname
             app.http.server.configuration.port = port
 
             // Register routes
@@ -84,7 +90,8 @@ final class VaporServer {
             try app.start()
             DispatchQueue.main.async {
                 self.isRunning = true
-                print("✅ Vapor server started on http://localhost:\(self.port)")
+                let displayHost = (self.hostname == "0.0.0.0") ? "all interfaces (0.0.0.0)" : self.hostname
+                print("✅ Vapor server started on \(displayHost):\(self.port)")
             }
         } catch {
             print("❌ Failed to start Vapor server: \(error)")
