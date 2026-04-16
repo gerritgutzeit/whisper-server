@@ -16,7 +16,15 @@ final class MenuBarService: ObservableObject {
         case status = 1000
         case server = 1001
         case download = 1002
+        case recentTranscriptions = 1003
     }
+
+    private static let historyTimeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.timeStyle = .short
+        f.dateStyle = .none
+        return f
+    }()
     
     // MARK: - Properties
     
@@ -30,6 +38,7 @@ final class MenuBarService: ObservableObject {
     private var baseTooltip = "WhisperServer - Ready"
     private var isCurrentlyProcessing = false
     private let progressResetDelay: TimeInterval = 1.0
+    private let transcriptionLogWindowController = TranscriptionLogWindowController()
     // MARK: - Initialization
     
     init(modelManager: ModelManager) {
@@ -197,6 +206,15 @@ final class MenuBarService: ObservableObject {
         serverItem.toolTip = "HTTP server will start after initialization is complete"
         serverItem.tag = MenuItemTags.server.rawValue
         menu.addItem(serverItem)
+
+        menu.addItem(NSMenuItem.separator())
+        let recentItem = NSMenuItem(title: "Recent Transcriptions", action: nil, keyEquivalent: "")
+        recentItem.tag = MenuItemTags.recentTranscriptions.rawValue
+        recentItem.toolTip = "Latest completed API transcriptions; click an item to copy full text"
+        let recentSubmenu = NSMenu()
+        populateRecentTranscriptionsSubmenu(recentSubmenu)
+        recentItem.submenu = recentSubmenu
+        menu.addItem(recentItem)
         
         // Model selection submenu
         menu.addItem(NSMenuItem.separator())
@@ -370,6 +388,99 @@ final class MenuBarService: ObservableObject {
             name: .modelManagerDidUpdate, 
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(refreshRecentTranscriptionsMenu),
+            name: .transcriptionHistoryDidUpdate,
+            object: nil
+        )
+    }
+
+    private func populateRecentTranscriptionsSubmenu(_ submenu: NSMenu) {
+        submenu.removeAllItems()
+
+        let openItem = NSMenuItem(title: "Open Transcription Log…", action: #selector(openTranscriptionLogWindow), keyEquivalent: "")
+        openItem.target = self
+        openItem.toolTip = "Searchable list and full text in a dedicated window"
+        submenu.addItem(openItem)
+        submenu.addItem(NSMenuItem.separator())
+
+        let entries = TranscriptionHistoryStore.shared.recentEntries()
+        let quickLimit = 8
+        if entries.isEmpty {
+            let emptyItem = NSMenuItem(title: "No transcriptions yet", action: nil, keyEquivalent: "")
+            emptyItem.isEnabled = false
+            submenu.addItem(emptyItem)
+        } else {
+            for entry in entries.prefix(quickLimit) {
+                let preview = Self.previewForMenu(from: entry.fullText, maxLength: 40)
+                let time = Self.historyTimeFormatter.string(from: entry.date)
+                let fileNote = entry.sourceFilename.map { " · \($0)" } ?? ""
+                let title = "Copy: \(time)\(fileNote) — \(preview)"
+                let item = NSMenuItem(title: title, action: #selector(copyRecentTranscription(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = entry.fullText as NSString
+                var tip = entry.fullText
+                if tip.count > 800 {
+                    tip = String(tip.prefix(800)) + "…"
+                }
+                item.toolTip = tip
+                submenu.addItem(item)
+            }
+            if entries.count > quickLimit {
+                let more = NSMenuItem(
+                    title: "… and \(entries.count - quickLimit) older (open log window)",
+                    action: nil,
+                    keyEquivalent: ""
+                )
+                more.isEnabled = false
+                submenu.addItem(more)
+            }
+            submenu.addItem(NSMenuItem.separator())
+            let clearItem = NSMenuItem(title: "Clear Recent", action: #selector(clearRecentTranscriptions(_:)), keyEquivalent: "")
+            clearItem.target = self
+            submenu.addItem(clearItem)
+        }
+    }
+
+    private static func previewForMenu(from text: String, maxLength: Int = 56) -> String {
+        let collapsed = text.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard collapsed.count > maxLength else { return collapsed.isEmpty ? "—" : collapsed }
+        let idx = collapsed.index(collapsed.startIndex, offsetBy: maxLength)
+        return String(collapsed[..<idx]) + "…"
+    }
+
+    @objc private func refreshRecentTranscriptionsMenu() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self,
+                  let menu = self.statusItem?.menu,
+                  let recentItem = menu.item(withTag: MenuItemTags.recentTranscriptions.rawValue),
+                  let submenu = recentItem.submenu else { return }
+            self.populateRecentTranscriptionsSubmenu(submenu)
+        }
+    }
+
+    @objc private func copyRecentTranscription(_ sender: NSMenuItem) {
+        let raw = sender.representedObject
+        let text: String?
+        if let s = raw as? String {
+            text = s
+        } else if let ns = raw as? NSString {
+            text = ns as String
+        } else {
+            text = nil
+        }
+        guard let body = text, !body.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(body, forType: .string)
+    }
+
+    @objc private func clearRecentTranscriptions(_: NSMenuItem) {
+        TranscriptionHistoryStore.shared.clear()
+    }
+
+    @objc private func openTranscriptionLogWindow() {
+        transcriptionLogWindowController.show()
     }
     
     // MARK: - Menu Actions

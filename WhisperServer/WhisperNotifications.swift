@@ -10,6 +10,7 @@ extension Notification.Name {
     static let tinyModelAutoSelected = Notification.Name("TinyModelAutoSelected")
     static let whisperMetalActivated = Notification.Name("WhisperMetalActivated")
     static let transcriptionProgressUpdated = Notification.Name("TranscriptionProgressUpdated")
+    static let transcriptionHistoryDidUpdate = Notification.Name("TranscriptionHistoryDidUpdate")
 }
 
 enum TranscriptionProgressUserInfoKey {

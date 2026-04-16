@@ -310,6 +310,18 @@ final class VaporServer {
         return paths
     }
 
+    /// Records successful transcription text for the menu bar history (skips API-style error JSON).
+    private func recordTranscriptionHistory(_ body: String, sourceFilename: String) {
+        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        if trimmed.hasPrefix("{\"error\"") { return }
+        let name = sourceFilename.trimmingCharacters(in: .whitespacesAndNewlines)
+        TranscriptionHistoryStore.shared.record(
+            completedText: trimmed,
+            sourceFilename: name.isEmpty ? nil : name
+        )
+    }
+
     // MARK: - Routes
     
     private func routes(_ app: Application) throws {
@@ -507,6 +519,7 @@ final class VaporServer {
                     }
                     // Timestamp streaming mode
                     var segmentCounter = 0
+                    let historyTranscript = TranscriptAccumulator()
                     let body = Response.Body(stream: { streamWriter in
                         if useSSE {
                             let prelude = ":ok\n\n"
@@ -521,6 +534,7 @@ final class VaporServer {
                             modelPaths: modelPaths,
                             modelName: progressModelName,
                             onSegment: { segment in
+                                historyTranscript.append(segment.text)
                                 req.eventLoop.execute {
                                     segmentCounter += 1
                                     let output: String
@@ -577,6 +591,7 @@ final class VaporServer {
                                             streamWriter.write(.end, promise: nil)
                                         },
                                         cleanup: {
+                                            self.recordTranscriptionHistory(historyTranscript.combined(), sourceFilename: fileName)
                                             releaseQueue()
                                             try? FileManager.default.removeItem(at: tempFileURL)
                                         }
@@ -610,6 +625,7 @@ final class VaporServer {
                 case .json, .text:
                     // Streaming contract: send chunks as they are ready.
                     // For FluidAudio we will send a single chunk when final result is ready, then close.
+                    let historyTranscript = TranscriptAccumulator()
                     let body = Response.Body(stream: { streamWriter in
                         if useSSE {
                             let prelude = ":ok\n\n"
@@ -626,6 +642,7 @@ final class VaporServer {
                                 modelPaths: modelPaths,
                                 modelName: progressModelName,
                                 onSegment: { segment in
+                                    historyTranscript.append(segment)
                                     req.eventLoop.execute {
                                         let output: String
                                         switch responseFormat {
@@ -659,6 +676,7 @@ final class VaporServer {
                                                 streamWriter.write(.end, promise: nil)
                                             },
                                             cleanup: {
+                                                self.recordTranscriptionHistory(historyTranscript.combined(), sourceFilename: fileName)
                                                 releaseQueue()
                                                 try? FileManager.default.removeItem(at: tempFileURL)
                                             }
@@ -747,6 +765,10 @@ final class VaporServer {
                                         self.writeChunk(output, req: req, useSSE: useSSE) { buffer in
                                             streamWriter.write(.buffer(buffer), promise: nil)
                                         }
+                                        self.recordTranscriptionHistory(
+                                            output.trimmingCharacters(in: .newlines),
+                                            sourceFilename: fileName
+                                        )
                                     }
                                 } else {
                                     let errorJSON = "{\"error\": \"Transcription failed\"}\n"
@@ -910,6 +932,7 @@ final class VaporServer {
                 headers.add(name: "Content-Type", value: contentType)
                 
                 let response = Response(status: .ok, headers: headers, body: .init(string: responseBody))
+                self.recordTranscriptionHistory(responseBody, sourceFilename: fileName)
                 try? FileManager.default.removeItem(at: tempFileURL) // Clean up
                 return response
             }
