@@ -13,6 +13,8 @@ final class TranscriptionLogViewModel: ObservableObject {
         let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !q.isEmpty else { return entries }
         return entries.filter { entry in
+            let plain = TranscriptionDisplayText.plain(from: entry.fullText).lowercased()
+            if plain.contains(q) { return true }
             if entry.fullText.lowercased().contains(q) { return true }
             if let name = entry.sourceFilename?.lowercased(), name.contains(q) { return true }
             return false

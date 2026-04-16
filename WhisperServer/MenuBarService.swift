@@ -419,7 +419,7 @@ final class MenuBarService: ObservableObject {
                 let title = "Copy: \(time)\(fileNote) — \(preview)"
                 let item = NSMenuItem(title: title, action: #selector(copyRecentTranscription(_:)), keyEquivalent: "")
                 item.target = self
-                item.representedObject = entry.fullText as NSString
+                item.representedObject = TranscriptionDisplayText.plain(from: entry.fullText) as NSString
                 var tip = entry.fullText
                 if tip.count > 800 {
                     tip = String(tip.prefix(800)) + "…"

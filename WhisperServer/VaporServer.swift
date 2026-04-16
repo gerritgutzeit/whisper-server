@@ -329,6 +329,42 @@ final class VaporServer {
         // Vapor streams requests larger than 16KB to a temporary file on disk by default.
         app.routes.defaultMaxBodySize = "1gb"
 
+        struct TranscriptionLogWebItem: Content {
+            let id: String
+            let at: String
+            let file: String?
+            let text: String
+        }
+
+        let transcriptionLogISO8601: ISO8601DateFormatter = {
+            let f = ISO8601DateFormatter()
+            f.formatOptions = [.withInternetDateTime]
+            return f
+        }()
+
+        app.get { _ async -> Response in
+            var headers = HTTPHeaders()
+            headers.add(name: .contentType, value: "text/html; charset=utf-8")
+            headers.add(name: "Cache-Control", value: "no-store")
+            return Response(status: .ok, headers: headers, body: .init(string: TranscriptionLogWebResources.indexHTML))
+        }
+
+        app.get("api", "transcription-log") { _ async -> [TranscriptionLogWebItem] in
+            TranscriptionHistoryStore.shared.recentEntries().map { entry in
+                TranscriptionLogWebItem(
+                    id: entry.id.uuidString,
+                    at: transcriptionLogISO8601.string(from: entry.date),
+                    file: entry.sourceFilename,
+                    text: TranscriptionDisplayText.plain(from: entry.fullText)
+                )
+            }
+        }
+
+        app.delete("api", "transcription-log") { _ async -> Response in
+            TranscriptionHistoryStore.shared.clear()
+            return Response(status: .noContent)
+        }
+
         app.get("v1", "models") { [self] _ -> APIModelListResponse in
             let currentProvider = self.modelManager.selectedProvider
             let selectedWhisperID = self.modelManager.selectedModelID

@@ -138,6 +138,7 @@ list_groups() {
     printf "  whisper-concurrency   - Parallel Whisper transcription test\n"
     printf "  fluid                 - Full Fluid provider suite\n"
     printf "  negative              - Negative-path error responses\n"
+    printf "  log                   - GET / HTML log page + GET /api/transcription-log JSON\n"
 }
 
 canonicalize_group() {
@@ -162,6 +163,9 @@ canonicalize_group() {
             ;;
         negative|negatives|errors|error-cases)
             printf 'negative\n'
+            ;;
+        log|web|weblog|logpage)
+            printf 'log\n'
             ;;
         *)
             return 1
@@ -1010,6 +1014,62 @@ run_models_listing_test() {
     echo ""
 }
 
+run_web_log_tests() {
+    local name="Web log (GET / and API)"
+    echo -e "${BLUE}🧾 Testing: $name${NC}"
+    local command
+
+    command=$(render_command -X GET "$SERVER_URL/")
+    echo -e "${YELLOW}Command: $command${NC}"
+    if ! run_curl_basic -X GET "$SERVER_URL/"; then
+        record_fail "$name" "curl failed (root HTML): $CURL_ERROR"
+        echo ""
+        return
+    fi
+    if [ "$LAST_STATUS" != "200" ]; then
+        record_fail "$name" "Expected HTTP 200 for GET /, got $LAST_STATUS"
+        echo ""
+        return
+    fi
+    if [[ "$LAST_BODY" != *"WhisperServer"* ]] || [[ "$LAST_BODY" != *"/api/transcription-log"* ]]; then
+        record_fail "$name" "Root HTML missing expected markers"
+        echo ""
+        return
+    fi
+
+    command=$(render_command -X GET "$SERVER_URL/api/transcription-log")
+    echo -e "${YELLOW}Command: $command${NC}"
+    if ! run_curl_basic -X GET "$SERVER_URL/api/transcription-log"; then
+        record_fail "$name" "curl failed (log API): $CURL_ERROR"
+        echo ""
+        return
+    fi
+    if [ "$LAST_STATUS" != "200" ]; then
+        record_fail "$name" "Expected HTTP 200 for log API, got $LAST_STATUS"
+        echo "   Response: $LAST_BODY"
+        echo ""
+        return
+    fi
+    if ! BODY="$LAST_BODY" python3 - <<'PY'
+import json, os, sys
+raw = os.environ.get("BODY", "")
+try:
+    data = json.loads(raw)
+except Exception:
+    sys.exit(1)
+sys.exit(0 if isinstance(data, list) else 1)
+PY
+    then
+        record_fail "$name" "Log API response is not a JSON array"
+        echo "   Response: $LAST_BODY"
+        echo ""
+        return
+    fi
+
+    record_pass "$name"
+    echo ""
+}
+
 check_server_ready() {
     if [ ! -f "$TEST_AUDIO" ]; then
         printf "%b❌ Test audio file '%s' not found!%b\n" "$RED" "$TEST_AUDIO" "$NC"
@@ -1369,6 +1429,10 @@ check_server_ready
 
 if should_run_group "models"; then
     run_models_listing_test
+fi
+
+if should_run_group "log"; then
+    run_web_log_tests
 fi
 
 if [ ${#FLUID_MODELS[@]} -gt 0 ] && should_run_group "fluid"; then

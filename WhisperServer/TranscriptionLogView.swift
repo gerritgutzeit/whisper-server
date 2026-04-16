@@ -74,7 +74,7 @@ struct TranscriptionLogView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
-            Text(previewLine(entry.fullText))
+            Text(previewLine(TranscriptionDisplayText.plain(from: entry.fullText)))
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .lineLimit(2)
@@ -93,9 +93,10 @@ struct TranscriptionLogView: View {
     @ViewBuilder
     private var detailColumn: some View {
         if let entry = model.selectedEntry {
+            let displayed = TranscriptionDisplayText.plain(from: entry.fullText)
             ScrollView {
-                Text(entry.fullText)
-                    .font(detailFont(for: entry.fullText))
+                Text(displayed)
+                    .font(detailFont(for: displayed))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding()
@@ -104,7 +105,7 @@ struct TranscriptionLogView: View {
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
                     Button {
-                        copyToPasteboard(entry.fullText)
+                        copyToPasteboard(displayed)
                     } label: {
                         Label("Copy", systemImage: "doc.on.doc")
                     }
